@@ -318,4 +318,8 @@ public class MerkleTree {
       return root.equals(proof[0]);
     }
   }
+
+  public SecureHash getHash() {
+    return this.hash;
+  }
 }

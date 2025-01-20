@@ -130,11 +130,11 @@ abstract class TestNetSetup(
     protected fun <V : Any> FlowExternalOperation<V>.get(): V = this.execute(UUID.randomUUID().toString())
     protected fun StartedMockNode.toParty() = this.info.chooseIdentity()
 
-    internal fun setCordaClock(futureInstant: Instant){
-        setOf(alice, bob, charlie).forEach {
-            (it.services.clock as TestClock).setTo(futureInstant)
-        }
-    }
+//    internal fun setCordaClock(futureInstant: Instant){
+//        setOf(alice, bob, charlie).forEach {
+//            (it.services.clock as TestClock).setTo(futureInstant)
+//        }
+//    }
 
     internal fun setEvmClock(futureInstant: Instant){
         alice.web3j().evmSetNextBlockTimestamp(futureInstant.epochSecond.toBigInteger())

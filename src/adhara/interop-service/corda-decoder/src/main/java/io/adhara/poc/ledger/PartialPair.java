@@ -10,4 +10,8 @@ import lombok.NoArgsConstructor;
 public class PartialPair {
 	private Boolean hasIncludedLeaf;
 	private PartialTree tree;
+
+	public PartialTree getTree() {
+		return tree;
+	}
 }

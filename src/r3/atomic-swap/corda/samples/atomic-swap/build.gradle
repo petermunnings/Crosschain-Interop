@@ -1,28 +1,174 @@
-apply plugin: 'idea'
-apply plugin: 'kotlin'
-apply plugin: 'net.corda.plugins.cordapp'
-apply plugin: 'net.corda.plugins.cordformation'
-apply plugin: 'net.corda.plugins.quasar-utils'
+import net.corda.plugins.Cordform
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
-description 'Atomic Swap Demo'
+buildscript {
+    Properties constants = new Properties()
+    file("$projectDir/./../../constants.properties").withInputStream { constants.load(it) }
 
-cordapp {
-    info {
-        name "Atomic Swap Demo"
-        vendor "R3"
-        targetPlatformVersion corda_platform_version.toInteger()
-        minimumPlatformVersion corda_platform_version
+    ext {
+        corda_release_group = constants.getProperty("cordaReleaseGroup")
+        corda_core_release_group =  constants.getProperty("cordaCoreReleaseGroup")
+        corda_release_version = constants.getProperty("cordaVersion")
+        corda_core_release_version = constants.getProperty("cordaCoreVersion")
+        corda_gradle_plugins_version = constants.getProperty("gradlePluginsVersion")
+        kotlin_version = constants.getProperty("kotlinVersion")
+        junit_version = constants.getProperty("junitVersion")
+        quasar_version = constants.getProperty("quasarVersin")
+        log4j_version = constants.getProperty("log4jVersion")
+        slf4j_version = constants.getProperty("slf4jVersion")
+        corda_platform_version = constants.getProperty("platormVersion")
+        persistence_version = constants.getProperty("persistenceVersion")
+        spring_boot_version = '2.0.2.RELEASE'
+        spring_boot_gradle_plugin_version = '2.0.2.RELEASE'
+    }
+
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        maven { url 'https://download.corda.net/maven/corda-releases' }
+        maven { url 'https://download.corda.net/maven/corda-dependencies' }
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "net.corda.plugins:cordapp:$corda_gradle_plugins_version"
+        classpath "net.corda.plugins:cordformation:$corda_gradle_plugins_version"
+        classpath "net.corda.plugins:quasar-utils:$corda_gradle_plugins_version"
+        classpath "org.springframework.boot:spring-boot-gradle-plugin:$spring_boot_gradle_plugin_version"
     }
 }
 
-dependencies {
-    cordaCompile "$corda_core_release_group:corda-core:$corda_core_release_version"
-    cordaRuntime "$corda_release_group:corda-node-api:$corda_release_version"
-    cordaRuntime "$corda_release_group:corda:$corda_release_version"
+task startDockerContainer {
+    doLast {
+        exec {
+            environment 'PATH', System.getenv('PATH') + ":/usr/local/bin"
+            commandLine 'sh', '-c', 'if [ -z "$(docker ps -q -f name=r3-harmonia-testnet-instance)" ]; then docker run --rm -d --name r3-harmonia-testnet-instance --platform linux/amd64 -p 8545:8545 edoardoierina/r3-harmonia-testnet; else echo "Container already running."; fi'
+        }
+    }
+}
 
-    cordaCompile "org.apache.logging.log4j:log4j-slf4j-impl:${log4j_version}"
-    cordaCompile "org.apache.logging.log4j:log4j-web:${log4j_version}"
-    cordaCompile "org.slf4j:jul-to-slf4j:$slf4j_version"
+task waitForContainerReady {
+    doLast {
+        def retries = 0
+        def maxRetries = 36
+        def healthy = false
+        def outputStream = new ByteArrayOutputStream()
+
+        while (!healthy && retries < maxRetries) {
+            exec {
+                environment 'PATH', System.getenv('PATH') + ":/usr/local/bin"
+                commandLine 'sh', '-c', 'docker inspect --format="{{.State.Health.Status}}" r3-harmonia-testnet-instance'
+                standardOutput = outputStream
+                ignoreExitValue = true
+            }
+
+            def healthStatus = outputStream.toString().trim()
+            outputStream.reset() // Reset the output stream for the next iteration
+
+            if (healthStatus == 'healthy') {
+                healthy = true
+            } else {
+                println "Waiting for container to become ready... (${retries}/${maxRetries})"
+                Thread.sleep(5000) // 5 seconds
+                retries++
+            }
+        }
+
+        if (!healthy) {
+            throw new GradleException("Container did not become ready within the expected time")
+        }
+
+        println "Container is now ready."
+    }
+}
+
+task stopDockerContainer  {
+    doLast {
+        try {
+            exec {
+                environment 'PATH', System.getenv('PATH') + ":/usr/local/bin"
+                commandLine 'sh', '-c', 'docker stop r3-harmonia-testnet-instance'
+                ignoreExitValue = true
+            }
+        } catch (Exception e) {
+            println "An error occurred while stopping the Docker container: ${e.message}"
+        }
+    }
+}
+
+allprojects { // Properties that you need to compile your project (The application)
+    apply plugin: 'org.jetbrains.kotlin.jvm'
+    apply from: "${rootProject.projectDir}/repositories.gradle"
+    apply plugin: 'net.corda.plugins.cordapp'
+    apply plugin: 'net.corda.plugins.cordformation'
+    apply plugin: 'net.corda.plugins.quasar-utils'
+
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        maven { url 'https://download.corda.net/maven/corda' }
+        maven { url 'https://download.corda.net/maven/corda-dev' }
+        maven { url "https://download.corda.net/maven/corda-dependencies" }
+        maven { url "https://download.corda.net/maven/corda-dependencies-dev" }
+        maven { url 'https://jitpack.io' }
+    }
+
+    tasks.withType(KotlinCompile).configureEach {
+        kotlinOptions {
+            languageVersion = "1.9"
+            apiVersion = "1.9"
+            jvmTarget = "17"
+            javaParameters = true   // Useful for reflection.
+        }
+    }
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+
+    tasks.withType(Test) {
+        if (project.hasProperty('useDockerTestnet')) {
+            dependsOn startDockerContainer, waitForContainerReady
+            finalizedBy stopDockerContainer
+        }
+    }
+
+    tasks.named('build') {
+        if (project.hasProperty('useDockerTestnet')) {
+            dependsOn startDockerContainer, waitForContainerReady
+            finalizedBy stopDockerContainer
+        }
+    }
+
+    test {
+        maxParallelForks = 1
+        forkEvery = 0
+    }
+
+    jar {
+        preserveFileTimestamps = false
+        reproducibleFileOrder = true
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+}
+cordapp {
+    targetPlatformVersion 140
+    minimumPlatformVersion 140
+
+}
+dependencies {
+    cordaProvided "$corda_core_release_group:corda-core:$corda_core_release_version"
+    cordaBootstrapper ("$corda_release_group:corda-node-api:$corda_release_version") {
+        exclude group: "ch.qos.logback", module: "logback-classic"
+    }
+    corda "$corda_release_group:corda:$corda_release_version"
+
+
+    cordaProvided "org.apache.logging.log4j:log4j-slf4j-impl:${log4j_version}"
+    cordaProvided "org.apache.logging.log4j:log4j-web:${log4j_version}"
+    cordaProvided "org.slf4j:jul-to-slf4j:$slf4j_version"
 
     cordaDriver project(':evm-interop-common')
     cordaDriver("org.web3j:core:$web3jVersion") { transitive = true }
@@ -31,25 +177,28 @@ dependencies {
     cordapp project(':evm-interop-contracts')
     cordapp project(':evm-interop-workflows')
     cordapp project(':samples:atomic-swap:swap-workflows')
+
 }
 
-task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
 
+
+// Task to deploy the nodes in order to bootstrap a network
+task deployNodes(type: Cordform, dependsOn: ['jar']) {
     nodeDefaults {
-        runSchemaMigration = true
-        notary = [validating: false]
-        projectCordapp { deploy = false }
-        extraConfig = [ 'devMode' : true, quasarExcludePackages: ["okhttp3**"] ]
-        rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
+        projectCordapp {
+            deploy = false
+        }
 
+        runSchemaMigration = true
         cordapp project(':evm-interop-contracts')
         cordapp project(':evm-interop-workflows')
         cordapp project(':samples:atomic-swap:swap-workflows')
+        rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
     }
 
     node {
         name "O=Notary,L=London,C=GB"
-        notary = [validating: true]
+        notary = [validating: false]
         p2pPort 10001
         extraConfig = [
                 'custom.jvmArgs': [
@@ -63,9 +212,8 @@ task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
             adminAddress("localhost:10021")
         }
     }
-
     node {
-        name "O=Alice,L=London,C=GB"
+        name "O=PartyA,L=London,C=GB"
         p2pPort 10002
         extraConfig = [
                 'custom.jvmArgs': [
@@ -78,11 +226,9 @@ task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
             address("localhost:10012")
             adminAddress("localhost:10022")
         }
-
     }
-
     node {
-        name "O=Bob,L=San Francisco,C=US"
+        name "O=PartyB,L=New York,C=US"
         p2pPort 10003
         extraConfig = [
                 'custom.jvmArgs': [
@@ -96,20 +242,217 @@ task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
             adminAddress("localhost:10023")
         }
     }
-
-    node {
-        name "O=Charlie,L=Mumbai,C=IN"
-        p2pPort 10004
-        extraConfig = [
-                'custom.jvmArgs': [
-                        "-Xmx1G",
-                        "-XX:+UseG1GC",
-                        "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5004"
-                ]
-        ]
-        rpcSettings {
-            address("localhost:10014")
-            adminAddress("localhost:10024")
-        }
-    }
 }
+
+//import net.corda.plugins.Cordform
+//import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+//
+//buildscript {
+//    Properties constants = new Properties()
+//    file("$projectDir/./../../constants.properties").withInputStream { constants.load(it) }
+//
+//    ext {
+//        corda_release_group = constants.getProperty("cordaReleaseGroup")
+//        corda_core_release_group = constants.getProperty("cordaCoreReleaseGroup")
+//        corda_release_version = constants.getProperty("cordaVersion")
+//        corda_core_release_version = constants.getProperty("cordaCoreVersion")
+//        corda_gradle_plugins_version = constants.getProperty("gradlePluginsVersion")
+//        kotlin_version = constants.getProperty("kotlinVersion")
+//        junit_version = constants.getProperty("junitVersion")
+//        quasar_version = constants.getProperty("quasarVersin")
+//        log4j_version = constants.getProperty("log4jVersion")
+//        slf4j_version = constants.getProperty("slf4jVersion")
+//        corda_platform_version = constants.getProperty("platormVersion")
+//        persistence_version = constants.getProperty("persistenceVersion")
+//        spring_boot_version = '2.0.2.RELEASE'
+//        spring_boot_gradle_plugin_version = '2.0.2.RELEASE'
+//    }
+//
+//    repositories {
+//        mavenLocal()
+//        mavenCentral()
+//        maven { url 'https://download.corda.net/maven/corda-releases' }
+//        maven { url 'https://download.corda.net/maven/corda-dependencies' }
+//    }
+//
+//    dependencies {
+//        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+//        classpath "net.corda.plugins:cordapp:$corda_gradle_plugins_version"
+//        classpath "net.corda.plugins:cordformation:$corda_gradle_plugins_version"
+//        classpath "net.corda.plugins:quasar-utils:$corda_gradle_plugins_version"
+//        classpath "org.springframework.boot:spring-boot-gradle-plugin:$spring_boot_gradle_plugin_version"
+//    }
+//}
+//
+//
+//dependencies {
+//    cordaProvided "$corda_core_release_group:corda-core:$corda_core_release_version"
+//    cordaBootstrapper("$corda_release_group:corda-node-api:$corda_release_version") {
+//        exclude group: "ch.qos.logback", module: "logback-classic"
+//    }
+//    cordaProvided "$corda_release_group:corda:$corda_release_version"
+//
+//    cordaProvided "org.apache.logging.log4j:log4j-slf4j-impl:${log4j_version}"
+//    cordaProvided "org.apache.logging.log4j:log4j-web:${log4j_version}"
+//    cordaProvided "org.slf4j:jul-to-slf4j:$slf4j_version"
+//
+//    cordaDriver project(':evm-interop-common')
+//    cordaDriver("org.web3j:core:$web3jVersion") { transitive = true }
+//    cordaDriver "net.corda:corda-shell:4.9"
+//
+//    cordapp project(':evm-interop-contracts')
+//    cordapp project(':evm-interop-workflows')
+////    cordapp project(':samples:atomic-swap:swap-workflows')
+//}
+//
+//
+//allprojects { // Properties that you need to compile your project (The application)
+//    apply plugin: 'org.jetbrains.kotlin.jvm'
+//    apply from: "${rootProject.projectDir}/repositories.gradle"
+//    apply plugin: 'net.corda.plugins.cordapp'
+//    apply plugin: 'net.corda.plugins.cordformation'
+//    apply plugin: 'net.corda.plugins.quasar-utils'
+//
+//    repositories {
+//        mavenLocal()
+//        mavenCentral()
+//        maven { url 'https://download.corda.net/maven/corda' }
+//        maven { url 'https://download.corda.net/maven/corda-dev' }
+//        maven { url "https://download.corda.net/maven/corda-dependencies" }
+//        maven { url "https://download.corda.net/maven/corda-dependencies-dev" }
+//        maven { url 'https://jitpack.io' }
+//    }
+//
+//    tasks.withType(KotlinCompile).configureEach {
+//        kotlinOptions {
+//            languageVersion = "1.9"
+//            apiVersion = "1.9"
+//            jvmTarget = "17"
+//            javaParameters = true   // Useful for reflection.
+//        }
+//    }
+//
+//    java {
+//        sourceCompatibility = JavaVersion.VERSION_17
+//        targetCompatibility = JavaVersion.VERSION_17
+//    }
+//
+//
+////    tasks.withType(Test) {
+////        if (project.hasProperty('useDockerTestnet')) {
+////            dependsOn startDockerContainer, waitForContainerReady
+////            finalizedBy stopDockerContainer
+////        }
+////    }
+////
+////    tasks.named('build') {
+////        if (project.hasProperty('useDockerTestnet')) {
+////            dependsOn startDockerContainer, waitForContainerReady
+////            finalizedBy stopDockerContainer
+////        }
+////    }
+//
+//    test {
+//        maxParallelForks = 1
+//        forkEvery = 0
+//    }
+//
+//    jar {
+//        preserveFileTimestamps = false
+//        reproducibleFileOrder = true
+//        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+//    }
+//}
+//cordapp {
+//    targetPlatformVersion 140
+//    minimumPlatformVersion 140
+////    workflow {
+////        name "Atomic Swap Demo"
+////        vendor "R3"
+////        licence "Apache License, Version 2.0"
+////        versionId 1
+////    }
+//}
+//
+//
+//task deployNodes(type: Cordform, dependsOn: ['jar']) {
+//
+//
+//    nodeDefaults {
+//        projectCordapp { deploy = false }
+//        runSchemaMigration = true
+//        notary = [validating: false]
+////        extraConfig = ['devMode': true, quasarExcludePackages: ["okhttp3**"]]
+//        rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
+//
+//        cordapp project(':evm-interop-contracts')
+//        cordapp project(':evm-interop-workflows')
+////        cordapp project(':samples:atomic-swap:swap-workflows')
+//    }
+//
+//    node {
+//        name "O=Notary,L=London,C=GB"
+//        notary = [validating: true]
+//        p2pPort 10001
+//        extraConfig = [
+//                'custom.jvmArgs': [
+//                        "-Xmx1G",
+//                        "-XX:+UseG1GC",
+//                        "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5001"
+//                ]
+//        ]
+//        rpcSettings {
+//            address("localhost:10011")
+//            adminAddress("localhost:10021")
+//        }
+//    }
+//
+//    node {
+//        name "O=Alice,L=London,C=GB"
+//        p2pPort 10002
+//        extraConfig = [
+//                'custom.jvmArgs': [
+//                        "-Xmx1G",
+//                        "-XX:+UseG1GC",
+//                        "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5002"
+//                ]
+//        ]
+//        rpcSettings {
+//            address("localhost:10012")
+//            adminAddress("localhost:10022")
+//        }
+//
+//    }
+//
+//    node {
+//        name "O=Bob,L=San Francisco,C=US"
+//        p2pPort 10003
+//        extraConfig = [
+//                'custom.jvmArgs': [
+//                        "-Xmx1G",
+//                        "-XX:+UseG1GC",
+//                        "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5003"
+//                ]
+//        ]
+//        rpcSettings {
+//            address("localhost:10013")
+//            adminAddress("localhost:10023")
+//        }
+//    }
+//
+//    node {
+//        name "O=Charlie,L=Mumbai,C=IN"
+//        p2pPort 10004
+//        extraConfig = [
+//                'custom.jvmArgs': [
+//                        "-Xmx1G",
+//                        "-XX:+UseG1GC",
+//                        "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5004"
+//                ]
+//        ]
+//        rpcSettings {
+//            address("localhost:10014")
+//            adminAddress("localhost:10024")
+//        }
+//    }
+//}
