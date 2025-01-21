@@ -23,8 +23,8 @@ dependencies {
     implementation "org.apache.logging.log4j:log4j-web:${log4j_version}"
     implementation "org.slf4j:jul-to-slf4j:$slf4j_version"
 
-    compileOnly 'org.projectlombok:lombok:1.18.24'
-    annotationProcessor 'org.projectlombok:lombok:1.18.24'
+    compileOnly 'org.projectlombok:lombok:1.18.36'
+    annotationProcessor 'org.projectlombok:lombok:1.18.36'
 
     implementation 'org.web3j:core:4.9.3'
 }
