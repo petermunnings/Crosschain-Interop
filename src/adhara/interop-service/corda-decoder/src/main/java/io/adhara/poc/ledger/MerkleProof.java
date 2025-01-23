@@ -12,7 +12,7 @@ public class MerkleProof {
 	private final byte[] flags;
 	private final SecureHash[] leaves;
 
-    public boolean equals(MerkleProof other) {
+	public boolean equals(MerkleProof other) {
 		return Arrays.equals(proof, other.proof)
 			&& Arrays.equals(flags, other.flags)
 			&& Arrays.equals(leaves, other.leaves);
