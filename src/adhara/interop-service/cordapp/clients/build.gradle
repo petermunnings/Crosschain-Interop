@@ -26,11 +26,11 @@ dependencies {
     compileOnly 'org.projectlombok:lombok:1.18.36'
     annotationProcessor 'org.projectlombok:lombok:1.18.36'
 
-    implementation 'org.web3j:core:4.9.3'
+    implementation 'org.web3j:core:4.12.1'
 }
 
 springBoot {
-    mainClassName = "net.corda.samples.example.webserver.Starter"
+    mainClassName = "net.corda.samples.example.Starter"
 }
 
 /* The Client is the communication channel between the external and the node. This task will help you immediately
@@ -39,7 +39,7 @@ springBoot {
  */
 task runTestClient(type: JavaExec, dependsOn: assemble) {
     classpath = sourceSets.main.runtimeClasspath
-    main = 'net.corda.samples.example.webserver.Client'
+    main = 'net.corda.samples.example.Client'
     args 'localhost:10006', 'user1', 'test'
 }
 
@@ -50,10 +50,18 @@ task runPartyAServer(type: JavaExec, dependsOn: assemble) {
     classpath = sourceSets.main.runtimeClasspath
     main = 'net.corda.samples.example.webserver.Starter'
     args '--server.port=50005', '--config.rpc.host=localhost', '--config.rpc.port=10006', '--config.rpc.username=user1', '--config.rpc.password=test'
+    jvmArgs '--add-opens', 'java.base/java.util=ALL-UNNAMED',
+            '--add-opens', 'java.base/java.lang.invoke=ALL-UNNAMED',
+            '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+            '--add-opens', 'java.base/java.util.concurrent=ALL-UNNAMED'
 }
 
 task runPartyBServer(type: JavaExec, dependsOn: assemble) {
     classpath = sourceSets.main.runtimeClasspath
     main = 'net.corda.samples.example.webserver.Starter'
     args '--server.port=50006', '--config.rpc.host=localhost', '--config.rpc.port=10009', '--config.rpc.username=user1', '--config.rpc.password=test'
+    jvmArgs '--add-opens', 'java.base/java.util=ALL-UNNAMED',
+            '--add-opens', 'java.base/java.lang.invoke=ALL-UNNAMED',
+            '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+            '--add-opens', 'java.base/java.util.concurrent=ALL-UNNAMED'
 }

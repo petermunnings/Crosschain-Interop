@@ -24,7 +24,7 @@ web3j {
 }
 
 ext {
-    web3jVersion = '4.9.4'
+    web3jVersion = '4.12.1'
 }
 
 def findSolcPath() {

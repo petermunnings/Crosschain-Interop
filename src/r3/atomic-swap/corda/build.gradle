@@ -165,7 +165,7 @@ dependencies {
     cordaProvided "org.slf4j:jul-to-slf4j:$slf4j_version"
 
     cordaDriver project(':evm-interop-common')
-    cordaDriver("org.web3j:core:$web3jVersion") { transitive = true }
+    cordaDriver("org.web3j:core:$web3jVersion")
     cordaDriver "net.corda:corda-shell:4.9"
 
     cordapp project(':evm-interop-contracts')
