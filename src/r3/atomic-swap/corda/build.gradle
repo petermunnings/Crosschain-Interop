@@ -148,8 +148,8 @@ allprojects { // Properties that you need to compile your project (The applicati
     }
 }
 cordapp {
-    targetPlatformVersion 140
-    minimumPlatformVersion 140
+    targetPlatformVersion corda_platform_version
+    minimumPlatformVersion corda_platform_version
 
 }
 dependencies {

@@ -8,8 +8,8 @@ repositories {
 }
 
 cordapp {
-    targetPlatformVersion 140
-    minimumPlatformVersion 140
+    targetPlatformVersion corda_platform_version
+    minimumPlatformVersion corda_platform_version
 
     workflow {
         name "EVM Interop Common Library"
